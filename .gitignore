@@ -1,0 +1,65 @@
+# ------------------------------------------------------------
+# R / RStudio
+# ------------------------------------------------------------
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# ------------------------------------------------------------
+# R Markdown generated files
+# ------------------------------------------------------------
+*_files/
+*.utf8.md
+*.knit.md
+
+# ------------------------------------------------------------
+# Local HTML report
+# ------------------------------------------------------------
+*.html
+
+# ------------------------------------------------------------
+# SIM/DATASUS downloaded and processed data
+# Do not upload mortality microdata or local caches
+# ------------------------------------------------------------
+data/*.rds
+data/*.RDS
+data/*.csv
+data/raw/
+data/processed/
+
+# ------------------------------------------------------------
+# IBGE files downloaded automatically by the analysis
+# ------------------------------------------------------------
+data/population/*.xlsx
+data/population/*.xls
+
+# ------------------------------------------------------------
+# OS / temporary files
+# ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# ------------------------------------------------------------
+# Results
+# Keep final numbered figures; ignore legacy/intermediate output
+# ------------------------------------------------------------
+results_women/*
+!results_women/figures/
+results_women/figures/*
+!results_women/figures/01_*.png
+!results_women/figures/02_*.png
+!results_women/figures/03_*.png
+!results_women/figures/04_*.png
+!results_women/figures/05_*.png
+!results_women/figures/06_*.png
+!results_women/figures/07_*.png
+!results_women/figures/08_*.png
+!results_women/figures/09_*.png
+!results_women/figures/10_*.png
+!results_women/figures/11_*.png
+
+# SVG source icons are not required for reproduction
+icons/*.svg

@@ -1,0 +1,1418 @@
+---
+title: "Mortality among women in Brazil"
+subtitle: "A descriptive analysis of homicide, suicide and femicide, 2010–2024"
+author: "Felipe Barletta"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  bookdown::html_document2:
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    code_folding: hide
+    highlight: tango
+    theme: united
+    css: style.css
+    self_contained: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  comment = NA,
+  cache = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 6,
+  dpi = 160,
+  out.width = "100%"
+)
+
+options(
+  scipen = 999,
+  dplyr.summarise.inform = FALSE
+)
+
+setwd("~/Documents/DataSus/Mulheres")
+
+library(microdatasus)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(purrr)
+library(forcats)
+library(readr)
+library(readxl)
+library(ggplot2)
+library(scales)
+library(cowplot)
+
+# Study period.
+year_start <- 2010
+year_end   <- 2024
+years      <- year_start:year_end
+
+# Project directories.
+data_directory       <- "data"
+population_directory <- file.path(data_directory, "population")
+output_directory     <- "results_women"
+figure_directory     <- file.path(output_directory, "figures")
+
+dir.create(data_directory, showWarnings = FALSE, recursive = TRUE)
+dir.create(population_directory, showWarnings = FALSE, recursive = TRUE)
+dir.create(output_directory, showWarnings = FALSE, recursive = TRUE)
+dir.create(figure_directory, showWarnings = FALSE, recursive = TRUE)
+
+# Sober plotting palette.
+col_navy  <- "#0B4F6C"
+col_blue  <- "#0077B6"
+col_teal  <- "#00A6A6"
+col_red   <- "#E85D5D"
+col_gold  <- "#D89B2B"
+col_grey  <- "#6C757D"
+
+# Common plotting theme.
+theme_datasus <- function(base_size = 12) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.title = element_text(
+        face = "bold",
+        size = base_size + 3,
+        color = col_navy,
+        margin = margin(b = 6)
+      ),
+      plot.subtitle = element_text(
+        size = base_size,
+        color = "#45555F",
+        margin = margin(b = 10)
+      ),
+      plot.caption = element_text(
+        size = base_size - 3,
+        color = "#5D6A72",
+        hjust = 0,
+        lineheight = 1.2,
+        margin = margin(t = 10)
+      ),
+      axis.title = element_text(
+        face = "bold",
+        color = "#334E5C"
+      ),
+      axis.text = element_text(
+        color = "#45555F"
+      ),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(
+        color = "#E5EDF2",
+        linewidth = 0.4
+      ),
+      legend.position = "top",
+      legend.title = element_blank(),
+      plot.margin = margin(10, 12, 10, 10)
+    )
+}
+
+# Contact footer used in publication and social-media figures.
+# The PNG files are stored locally in icons/ so the project remains reproducible.
+contact_footer <- function() {
+  stopifnot(
+    file.exists("icons/gmail.png"),
+    file.exists("icons/whatsapp.png")
+  )
+
+  cowplot::ggdraw() +
+    cowplot::draw_label(
+      "Analysis and interpretation: Felipe Barletta",
+      x = 0.01, y = 0.50,
+      hjust = 0, vjust = 0.5, size = 9
+    ) +
+    cowplot::draw_image(
+      "icons/gmail.png",
+      x = 0.39, y = 0.34,
+      width = 0.025, height = 0.32
+    ) +
+    cowplot::draw_label(
+      "e-mail.felipe.barletta@gmail.com",
+      x = 0.42, y = 0.50,
+      hjust = 0, vjust = 0.5, size = 9
+    ) +
+    cowplot::draw_label(
+      "|",
+      x = 0.675, y = 0.50,
+      hjust = 0.5, vjust = 0.5, size = 9
+    ) +
+    cowplot::draw_image(
+      "icons/whatsapp.png",
+      x = 0.70, y = 0.34,
+      width = 0.025, height = 0.32
+    ) +
+    cowplot::draw_label(
+      "+351 910 678 043",
+      x = 0.73, y = 0.50,
+      hjust = 0, vjust = 0.5, size = 9
+    )
+}
+
+add_contact_footer <- function(plot_object) {
+  cowplot::plot_grid(
+    plot_object,
+    contact_footer(),
+    ncol = 1,
+    rel_heights = c(1, 0.075),
+    align = "v",
+    axis = "lr"
+  )
+}
+```
+
+# Study overview
+
+This project uses official mortality microdata from the Brazilian **Mortality Information System (SIM/DATASUS)** to describe mortality among women in Brazil from 2010 to 2024. SIM is based on information recorded on the Brazilian **Declaração de Óbito (Death Certificate)**, including demographic characteristics and the underlying cause of death coded according to ICD-10.
+
+The analysis follows a deliberately progressive narrative: **all female deaths → population-based mortality → external causes → homicide and suicide → femicide**. Additional age and race/skin-color analyses are retained at the end for subsequent analyses and communication products.
+
+Official sources:
+
+- [SIM — Brazilian Ministry of Health](https://www.gov.br/saude/pt-br/composicao/svsa/sistemas-de-informacao/sim)
+- [DATASUS](https://datasus.saude.gov.br/)
+- [IBGE Population Projections, 2024 Revision](https://www.ibge.gov.br/estatisticas/sociais/populacao/9109-projecao-da-populacao.html)
+- [Fórum Brasileiro de Segurança Pública — Anuário Brasileiro de Segurança Pública](https://forumseguranca.org.br/publicacoes/anuario-brasileiro-de-seguranca-publica/)
+
+## Cohort definition
+
+The analytical cohort contains deaths recorded as **female** in SIM between 2010 and 2024. It is not restricted to deaths occurring in hospitals and is not restricted by occupation, employment status, education, marital status or place of occurrence.
+
+The principal SIM variables used are date of death (`DTOBITO`), underlying cause (`CAUSABAS`), sex (`SEXO`), age (`IDADE`), race/skin color (`RACACOR`) and municipality of residence (`CODMUNRES`).
+
+# Reproducible data preparation
+
+## Download SIM and identify women
+
+Each year is downloaded and filtered separately. The cached RDS file is reused when available.
+
+```{r download-data, results='hide'}
+sim_variables <-
+  c(
+    "DTOBITO",
+    "CAUSABAS",
+    "SEXO",
+    "IDADE",
+    "RACACOR",
+    "CODMUNRES"
+  )
+
+download_female_deaths <- function(year) {
+
+  sim_raw <-
+    fetch_datasus(
+      year_start = year,
+      year_end = year,
+      uf = "all",
+      information_system = "SIM-DO",
+      vars = sim_variables,
+      stop_on_error = TRUE,
+      timeout = 600,
+      quiet = FALSE
+    )
+
+  # In raw SIM-DO data, SEXO = 2 identifies female records.
+  sim_raw <-
+    sim_raw %>%
+    filter(
+      str_trim(as.character(SEXO)) == "2"
+    )
+
+  sim_processed <-
+    process_sim(
+      sim_raw,
+      municipality_data = FALSE
+    )
+
+  women_year <-
+    sim_processed %>%
+    mutate(YEAR = year)
+
+  rm(sim_raw, sim_processed)
+  gc()
+
+  women_year
+}
+
+women_rds <-
+  file.path(
+    data_directory,
+    "female_deaths_SIM_2010_2024.rds"
+  )
+
+if (file.exists(women_rds)) {
+
+  women_deaths <- readRDS(women_rds)
+
+} else {
+
+  women_deaths <-
+    purrr::map_dfr(
+      years,
+      download_female_deaths
+    )
+
+  saveRDS(
+    women_deaths,
+    women_rds,
+    compress = TRUE
+  )
+}
+```
+
+## Create analysis variables
+
+```{r create-variables, results='hide'}
+women_deaths <-
+  women_deaths %>%
+  mutate(
+    death_date =
+      as.Date(
+        DTOBITO,
+        format = "%Y-%m-%d"
+      ),
+
+    death_year =
+      as.integer(
+        format(
+          death_date,
+          "%Y"
+        )
+      ),
+
+    age =
+      suppressWarnings(
+        as.numeric(IDADEanos)
+      ),
+
+    underlying_cause =
+      str_to_upper(
+        str_trim(
+          as.character(CAUSABAS)
+        )
+      ),
+
+    icd10_3 =
+      str_sub(
+        underlying_cause,
+        1,
+        3
+      ),
+
+    age_group =
+      cut(
+        age,
+        breaks = c(
+          -Inf, 19, 29, 39, 49,
+          59, 69, 79, Inf
+        ),
+        labels = c(
+          "<20", "20–29", "30–39", "40–49",
+          "50–59", "60–69", "70–79", "80+"
+        ),
+        right = TRUE
+      ),
+
+    # Mutually exclusive external-cause categories.
+    external_cause_category =
+      case_when(
+        str_detect(icd10_3, "^V") ~
+          "Transport accidents",
+
+        icd10_3 >= "W00" & icd10_3 <= "W19" ~
+          "Falls",
+
+        icd10_3 >= "W65" & icd10_3 <= "W74" ~
+          "Drowning",
+
+        icd10_3 >= "X40" & icd10_3 <= "X49" ~
+          "Accidental poisoning",
+
+        icd10_3 >= "X60" & icd10_3 <= "X84" ~
+          "Suicide",
+
+        (icd10_3 >= "X85" & icd10_3 <= "X99") |
+          (icd10_3 >= "Y00" & icd10_3 <= "Y09") ~
+          "Homicide",
+
+        icd10_3 >= "Y10" & icd10_3 <= "Y34" ~
+          "Undetermined intent",
+
+        str_detect(underlying_cause, "^[VWXY]") ~
+          "Other external causes",
+
+        TRUE ~
+          NA_character_
+      )
+  )
+
+# Minimal quality checks required for the analysis.
+stopifnot(
+  all(women_deaths$death_year[!is.na(women_deaths$death_year)] %in% years),
+  sum(!is.na(women_deaths$underlying_cause)) > 0
+)
+```
+
+## Female population denominator
+
+Annual female population denominators come from the **IBGE Population Projections, 2024 Revision**. Population refers to July 1 of each year. The same denominator is used for all national female mortality rates in this report.
+
+```{r ibge-female-population, results='hide'}
+ibge_population_url <-
+  paste0(
+    "https://ftp.ibge.gov.br/Projecao_da_Populacao/",
+    "Projecao_da_Populacao_2024/",
+    "projecoes_2024_tab1_idade_simples.xlsx"
+  )
+
+ibge_population_file <-
+  file.path(
+    population_directory,
+    "projecoes_2024_tab1_idade_simples.xlsx"
+  )
+
+if (!file.exists(ibge_population_file)) {
+  download.file(
+    url = ibge_population_url,
+    destfile = ibge_population_file,
+    mode = "wb",
+    quiet = FALSE
+  )
+}
+
+ibge_population_raw <-
+  read_excel(
+    ibge_population_file,
+    sheet = "1) POP_IDADE SIMPLES",
+    skip = 5
+  )
+
+population_year_columns <-
+  as.character(2010:2024)
+
+stopifnot(
+  all(population_year_columns %in% names(ibge_population_raw))
+)
+
+female_population_by_year <-
+  ibge_population_raw %>%
+  filter(
+    SIGLA == "BR",
+    SEXO == "Mulheres"
+  ) %>%
+  select(
+    IDADE,
+    all_of(population_year_columns)
+  ) %>%
+  pivot_longer(
+    cols = all_of(population_year_columns),
+    names_to = "death_year",
+    values_to = "female_population"
+  ) %>%
+  mutate(
+    death_year = as.integer(death_year),
+    female_population = as.numeric(female_population)
+  ) %>%
+  group_by(death_year) %>%
+  summarise(
+    female_population =
+      sum(
+        female_population,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  ) %>%
+  arrange(death_year)
+
+stopifnot(
+  nrow(female_population_by_year) == 15,
+  identical(female_population_by_year$death_year, 2010:2024),
+  all(female_population_by_year$female_population > 0)
+)
+```
+
+# Main results
+
+## 1. Female deaths: absolute numbers
+
+The analysis begins with the annual number of deaths among women recorded in SIM, irrespective of cause.
+
+```{r female-deaths-absolute, fig.width=10, fig.height=6.2}
+deaths_by_year <-
+  women_deaths %>%
+  count(
+    death_year,
+    name = "Deaths"
+  ) %>%
+  filter(death_year %in% years) %>%
+  arrange(death_year)
+
+plot_deaths_over_time <-
+  ggplot(
+    deaths_by_year,
+    aes(
+      x = death_year,
+      y = Deaths
+    )
+  ) +
+  geom_line(
+    linewidth = 1.1,
+    color = col_blue
+  ) +
+  geom_point(
+    size = 2.6,
+    color = col_blue
+  ) +
+  scale_x_continuous(
+    breaks = years
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0.03, 0.08))
+  ) +
+  labs(
+    title = "Deaths among women recorded in SIM",
+    subtitle = "Annual number of deaths, Brazil, 2010–2024",
+    x = "Year",
+    y = "Number of deaths",
+    caption =
+      "Source: Brazilian Mortality Information System (SIM/DATASUS)."
+  ) +
+  theme_datasus() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+plot_deaths_over_time <- add_contact_footer(plot_deaths_over_time)
+
+plot_deaths_over_time
+```
+
+Absolute counts describe the number of recorded deaths, but they do not account for changes in the size of the female population.
+
+## 2. Female deaths: crude mortality rate
+
+To account for population size, annual deaths are divided by the female population of Brazil. The resulting measure is a **crude mortality rate per 100,000 women**; it is not age-standardized.
+
+```{r female-crude-mortality-rate, fig.width=10, fig.height=6.2}
+female_mortality_rate <-
+  deaths_by_year %>%
+  transmute(
+    death_year = as.integer(death_year),
+    female_deaths = as.numeric(Deaths)
+  ) %>%
+  left_join(
+    female_population_by_year,
+    by = "death_year"
+  ) %>%
+  mutate(
+    deaths_per_100000_women =
+      100000 * female_deaths / female_population
+  )
+
+stopifnot(
+  !any(is.na(female_mortality_rate$deaths_per_100000_women))
+)
+
+plot_female_crude_mortality <-
+  ggplot(
+    female_mortality_rate,
+    aes(
+      x = death_year,
+      y = deaths_per_100000_women
+    )
+  ) +
+  geom_line(
+    linewidth = 1.15,
+    color = col_blue
+  ) +
+  geom_point(
+    size = 2.7,
+    color = col_blue
+  ) +
+  scale_x_continuous(
+    breaks = years
+  ) +
+  scale_y_continuous(
+    labels = scales::label_number(accuracy = 1),
+    expand = expansion(mult = c(0.04, 0.08))
+  ) +
+  labs(
+    title = "Crude mortality rate among women in Brazil",
+    subtitle = "Deaths from all causes per 100,000 women, 2010–2024",
+    x = "Year",
+    y = "Deaths per 100,000 women",
+    caption = paste0(
+      "Deaths: Mortality Information System (SIM/DATASUS). ",
+      "Population: IBGE Population Projections, 2024 Revision.\n",
+      "Population corresponds to women in Brazil on July 1 of each year. ",
+      "Crude rates are not adjusted for age."
+    )
+  ) +
+  theme_datasus() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+plot_female_crude_mortality <- add_contact_footer(plot_female_crude_mortality)
+
+plot_female_crude_mortality
+```
+
+## 3. External and violent causes of death
+
+The focus now narrows from mortality from all causes to deaths classified within ICD-10 external causes. Homicide, suicide and events of undetermined intent are kept as distinct categories.
+
+```{r external-causes, fig.width=10, fig.height=6.2}
+external_cause_summary <-
+  women_deaths %>%
+  filter(
+    !is.na(external_cause_category)
+  ) %>%
+  count(
+    external_cause_category,
+    name = "Deaths"
+  ) %>%
+  arrange(desc(Deaths))
+
+plot_external_causes <-
+  external_cause_summary %>%
+  mutate(
+    external_cause_category =
+      fct_reorder(
+        external_cause_category,
+        Deaths
+      )
+  ) %>%
+  ggplot(
+    aes(
+      x = external_cause_category,
+      y = Deaths
+    )
+  ) +
+  geom_col(
+    fill = col_gold,
+    width = 0.72
+  ) +
+  coord_flip() +
+  geom_text(
+    aes(label = scales::comma(Deaths)),
+    hjust = -0.12,
+    size = 3.5,
+    color = "#334E5C"
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0, 0.15))
+  ) +
+  labs(
+    title = "External causes of death among women",
+    subtitle = "Absolute numbers, Brazil, 2010–2024",
+    x = NULL,
+    y = "Number of deaths",
+    caption =
+      "Source: Brazilian Mortality Information System (SIM/DATASUS)."
+  ) +
+  theme_datasus() +
+  theme(
+    panel.grid.major.y = element_blank()
+  )
+
+plot_external_causes <- add_contact_footer(plot_external_causes)
+
+plot_external_causes
+```
+
+<div class="warning-box">
+<strong>Important distinction.</strong> Suicide is defined as ICD-10 X60–X84 and homicide/assault as X85–Y09. Events of undetermined intent (Y10–Y34) remain separate. SIM identifies deaths of women classified as homicide, but the underlying ICD-10 cause alone does not contain the legal and contextual information required to establish femicide.
+</div>
+
+## 4. Homicide and suicide: absolute numbers
+
+The next step isolates the two intentional violent causes examined in the main analysis: homicide and suicide.
+
+```{r homicide-suicide-data, results='hide'}
+suicide_homicide_year <-
+  women_deaths %>%
+  filter(
+    external_cause_category %in%
+      c("Suicide", "Homicide")
+  ) %>%
+  count(
+    death_year,
+    external_cause_category,
+    name = "deaths"
+  ) %>%
+  tidyr::complete(
+    death_year = years,
+    external_cause_category = c("Suicide", "Homicide"),
+    fill = list(deaths = 0)
+  ) %>%
+  arrange(death_year, external_cause_category)
+
+suicide_homicide_total <-
+  suicide_homicide_year %>%
+  group_by(external_cause_category) %>%
+  summarise(
+    deaths = sum(deaths),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    percentage = 100 * deaths / sum(deaths)
+  )
+
+total_suicide <-
+  suicide_homicide_total %>%
+  filter(external_cause_category == "Suicide")
+
+total_homicide <-
+  suicide_homicide_total %>%
+  filter(external_cause_category == "Homicide")
+
+total_violent <-
+  sum(suicide_homicide_total$deaths)
+```
+
+```{r homicide-suicide-absolute, fig.width=10, fig.height=6.4}
+plot_homicide_suicide_absolute <-
+  ggplot(
+    suicide_homicide_year,
+    aes(
+      x = death_year,
+      y = deaths,
+      color = external_cause_category,
+      group = external_cause_category
+    )
+  ) +
+  geom_line(linewidth = 1.15) +
+  geom_point(size = 2.6) +
+  scale_color_manual(
+    values = c(
+      "Homicide" = col_red,
+      "Suicide" = col_teal
+    )
+  ) +
+  scale_x_continuous(
+    breaks = years
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0.03, 0.08))
+  ) +
+  labs(
+    title = "Homicide and suicide deaths among women in Brazil",
+    subtitle = "Annual absolute number of deaths, 2010–2024",
+    x = "Year",
+    y = "Number of deaths",
+    color = NULL,
+    caption = paste0(
+      "2010–2024 total: ", scales::comma(total_violent),
+      " homicide + suicide deaths. Homicide: ",
+      scales::comma(total_homicide$deaths),
+      "; Suicide: ", scales::comma(total_suicide$deaths), ".\n",
+      "Source: Brazilian Mortality Information System (SIM/DATASUS)."
+    )
+  ) +
+  theme_datasus() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+plot_homicide_suicide_absolute <- add_contact_footer(plot_homicide_suicide_absolute)
+
+plot_homicide_suicide_absolute
+```
+
+## 5. Homicide and suicide: mortality rates
+
+Absolute numbers are then converted to crude cause-specific mortality rates using the same annual female population denominator from IBGE.
+
+```{r homicide-suicide-rates, fig.width=10, fig.height=6.4}
+female_homicide_suicide_rates <-
+  suicide_homicide_year %>%
+  transmute(
+    death_year = as.integer(death_year),
+    cause = as.character(external_cause_category),
+    deaths = as.numeric(deaths)
+  ) %>%
+  left_join(
+    female_population_by_year,
+    by = "death_year"
+  ) %>%
+  mutate(
+    deaths_per_100000_women =
+      100000 * deaths / female_population
+  ) %>%
+  arrange(death_year, cause)
+
+stopifnot(
+  nrow(female_homicide_suicide_rates) == 30,
+  !any(is.na(female_homicide_suicide_rates$deaths_per_100000_women))
+)
+
+plot_female_homicide_suicide_rates <-
+  ggplot(
+    female_homicide_suicide_rates,
+    aes(
+      x = death_year,
+      y = deaths_per_100000_women,
+      color = cause,
+      group = cause
+    )
+  ) +
+  geom_line(linewidth = 1.15) +
+  geom_point(size = 2.7) +
+  scale_color_manual(
+    values = c(
+      "Homicide" = col_red,
+      "Suicide" = col_teal
+    )
+  ) +
+  scale_x_continuous(
+    breaks = years
+  ) +
+  scale_y_continuous(
+    labels = scales::label_number(accuracy = 0.1),
+    expand = expansion(mult = c(0.05, 0.10))
+  ) +
+  labs(
+    title = "Homicide and suicide mortality rates among women in Brazil",
+    subtitle = "Deaths per 100,000 women, 2010–2024",
+    x = "Year",
+    y = "Deaths per 100,000 women",
+    color = NULL,
+    caption = paste0(
+      "Deaths: Mortality Information System (SIM/DATASUS). ",
+      "Population: IBGE Population Projections, 2024 Revision.\n",
+      "Crude cause-specific mortality rates are not adjusted for age."
+    )
+  ) +
+  theme_datasus() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+plot_female_homicide_suicide_rates <- add_contact_footer(plot_female_homicide_suicide_rates)
+
+plot_female_homicide_suicide_rates
+```
+
+## 6. Femicide: registered cases and relation to female homicides
+
+Brazil introduced the legal category of femicide in 2015. The series below uses the consolidated annual counts published by the **Fórum Brasileiro de Segurança Pública (FBSP)**. These records originate from public-security data and are therefore analytically distinct from deaths classified as homicide in SIM.
+
+The first figure compares the absolute number of registered femicides with female homicide deaths recorded in SIM. The second expresses the FBSP femicide count relative to the SIM female-homicide count in the same year.
+
+```{r femicide-data, results='hide'}
+# Consolidated FBSP historical series used in this project.
+femicide_fbsp <-
+  tibble::tibble(
+    death_year = 2015:2024,
+    femicides_fbsp = c(
+      449,
+      929,
+      1075,
+      1229,
+      1330,
+      1354,
+      1347,
+      1455,
+      1475,
+      1492
+    )
+  )
+
+female_homicide_sim <-
+  suicide_homicide_year %>%
+  filter(
+    external_cause_category == "Homicide",
+    death_year >= 2015,
+    death_year <= 2024
+  ) %>%
+  transmute(
+    death_year = as.integer(death_year),
+    female_homicides_sim = as.numeric(deaths)
+  )
+
+femicide_homicide_comparison <-
+  female_homicide_sim %>%
+  left_join(
+    femicide_fbsp,
+    by = "death_year"
+  ) %>%
+  mutate(
+    femicide_percentage_of_sim_homicides =
+      100 * femicides_fbsp / female_homicides_sim
+  ) %>%
+  arrange(death_year)
+```
+
+### Registered femicides and female homicides
+
+```{r femicide-absolute, fig.width=10, fig.height=6.4}
+plot_femicide_absolute_data <-
+  femicide_homicide_comparison %>%
+  select(
+    death_year,
+    female_homicides_sim,
+    femicides_fbsp
+  ) %>%
+  pivot_longer(
+    cols = c(
+      female_homicides_sim,
+      femicides_fbsp
+    ),
+    names_to = "series",
+    values_to = "deaths"
+  ) %>%
+  mutate(
+    series =
+      recode(
+        series,
+        female_homicides_sim = "Female homicides — SIM/DATASUS",
+        femicides_fbsp = "Registered femicides — FBSP"
+      )
+  )
+
+plot_femicide_absolute <-
+  ggplot(
+    plot_femicide_absolute_data,
+    aes(
+      x = death_year,
+      y = deaths,
+      color = series,
+      group = series
+    )
+  ) +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 2.6) +
+  scale_color_manual(
+    values = c(
+      "Female homicides — SIM/DATASUS" = col_navy,
+      "Registered femicides — FBSP" = col_red
+    )
+  ) +
+  scale_x_continuous(
+    breaks = 2015:2024
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0.03, 0.08))
+  ) +
+  labs(
+    title = "Female homicides and registered femicides in Brazil",
+    subtitle = "SIM/DATASUS homicide deaths and FBSP femicide records, 2015–2024",
+    x = "Year",
+    y = "Number of deaths",
+    color = NULL,
+    caption = paste0(
+      "Female homicides: Mortality Information System (SIM/DATASUS). ",
+      "Femicides: Fórum Brasileiro de Segurança Pública (FBSP).\n",
+      "The two series originate from different information systems."
+    )
+  ) +
+  theme_datasus()
+
+plot_femicide_absolute <- add_contact_footer(plot_femicide_absolute)
+
+plot_femicide_absolute
+```
+
+### Registered femicides relative to female homicides
+
+```{r femicide-proportion, fig.width=10, fig.height=6.4}
+plot_femicide_percentage <-
+  ggplot(
+    femicide_homicide_comparison,
+    aes(
+      x = death_year,
+      y = femicide_percentage_of_sim_homicides
+    )
+  ) +
+  geom_line(
+    color = col_red,
+    linewidth = 1.1
+  ) +
+  geom_point(
+    color = col_red,
+    size = 2.6
+  ) +
+  geom_text(
+    aes(
+      label = sprintf(
+        "%.1f%%",
+        femicide_percentage_of_sim_homicides
+      )
+    ),
+    vjust = -0.8,
+    size = 3.2,
+    color = "#343A40"
+  ) +
+  scale_x_continuous(
+    breaks = 2015:2024
+  ) +
+  scale_y_continuous(
+    labels = scales::label_percent(
+      scale = 1,
+      accuracy = 1
+    ),
+    expand = expansion(mult = c(0.03, 0.15))
+  ) +
+  labs(
+    title = "Registered femicides relative to female homicides in Brazil",
+    subtitle = "FBSP femicides as a percentage of female homicide deaths recorded in SIM, 2015–2024",
+    x = "Year",
+    y = "Femicides / female homicides (%)",
+    caption = paste0(
+      "Numerator: registered femicides, FBSP. ",
+      "Denominator: female homicide deaths, SIM/DATASUS.\n",
+      "This is a cross-system descriptive comparison, not the official FBSP proportion."
+    )
+  ) +
+  theme_datasus()
+
+plot_femicide_percentage <- add_contact_footer(plot_femicide_percentage)
+
+plot_femicide_percentage
+```
+
+The ratio above should be interpreted literally as **registered femicides in FBSP divided by female homicide deaths recorded in SIM**. Because numerator and denominator come from different information systems, it should not be interpreted as an individual-level classification of SIM homicide records.
+
+# Additional demographic analyses
+
+These figures are retained for follow-up analyses, including a separate communication focused on differences by race/skin color. They show **absolute counts**, not subgroup-specific mortality rates.
+
+## Female deaths by age group
+
+```{r age-plot, fig.width=10, fig.height=5.8}
+deaths_by_age_group <-
+  women_deaths %>%
+  filter(!is.na(age_group)) %>%
+  count(
+    age_group,
+    name = "Deaths"
+  ) %>%
+  mutate(
+    Percentage = 100 * Deaths / sum(Deaths)
+  )
+
+plot_age_groups <-
+  ggplot(
+    deaths_by_age_group,
+    aes(
+      x = age_group,
+      y = Deaths
+    )
+  ) +
+  geom_col(
+    fill = col_blue,
+    width = 0.72
+  ) +
+  geom_text(
+    aes(
+      label = paste0(
+        scales::comma(Deaths),
+        "\n(", sprintf("%.1f", Percentage), "%)"
+      )
+    ),
+    vjust = -0.25,
+    size = 3.1,
+    color = "#334E5C"
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  labs(
+    title = "Age distribution of deaths among women",
+    subtitle = "Absolute numbers, Brazil, 2010–2024",
+    x = "Age group",
+    y = "Number of deaths",
+    caption =
+      "Source: Brazilian Mortality Information System (SIM/DATASUS)."
+  ) +
+  theme_datasus() +
+  theme(
+    panel.grid.major.x = element_blank()
+  )
+
+plot_age_groups <- add_contact_footer(plot_age_groups)
+
+plot_age_groups
+```
+
+## Female deaths by race/skin color
+
+```{r race-plot, fig.width=10, fig.height=5.8}
+deaths_by_race <-
+  women_deaths %>%
+  mutate(
+    race_skin_color =
+      if_else(
+        is.na(RACACOR) |
+          str_trim(as.character(RACACOR)) == "",
+        "Missing/unknown",
+        as.character(RACACOR)
+      )
+  ) %>%
+  count(
+    race_skin_color,
+    name = "Deaths"
+  ) %>%
+  arrange(desc(Deaths))
+
+plot_deaths_by_race <-
+  deaths_by_race %>%
+  mutate(
+    race_skin_color =
+      fct_reorder(
+        race_skin_color,
+        Deaths
+      )
+  ) %>%
+  ggplot(
+    aes(
+      x = race_skin_color,
+      y = Deaths
+    )
+  ) +
+  geom_col(
+    fill = col_blue,
+    width = 0.72
+  ) +
+  coord_flip() +
+  geom_text(
+    aes(label = scales::comma(Deaths)),
+    hjust = -0.10,
+    size = 3.3,
+    color = "#334E5C"
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0, 0.13))
+  ) +
+  labs(
+    title = "Deaths among women by race/skin color",
+    subtitle = "Absolute numbers, Brazil, 2010–2024",
+    x = NULL,
+    y = "Number of deaths",
+    caption = paste0(
+      "Counts are not race-specific mortality rates. ",
+      "Missing/unknown values remain explicit.\n",
+      "Source: Brazilian Mortality Information System (SIM/DATASUS)."
+    )
+  ) +
+  theme_datasus() +
+  theme(
+    panel.grid.major.y = element_blank()
+  )
+
+plot_deaths_by_race <- add_contact_footer(plot_deaths_by_race)
+
+plot_deaths_by_race
+```
+
+## Homicide and suicide by age group
+
+```{r homicide-suicide-by-age, fig.width=10, fig.height=6.2}
+suicide_homicide_age <-
+  women_deaths %>%
+  filter(
+    external_cause_category %in% c("Suicide", "Homicide"),
+    !is.na(age_group)
+  ) %>%
+  count(
+    age_group,
+    external_cause_category,
+    name = "deaths"
+  ) %>%
+  tidyr::complete(
+    age_group,
+    external_cause_category = c("Suicide", "Homicide"),
+    fill = list(deaths = 0)
+  )
+
+plot_homicide_suicide_by_age <-
+  ggplot(
+    suicide_homicide_age,
+    aes(
+      x = age_group,
+      y = deaths,
+      fill = external_cause_category
+    )
+  ) +
+  geom_col(
+    position = "dodge",
+    width = 0.72
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Homicide" = col_red,
+      "Suicide" = col_teal
+    )
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0, 0.08))
+  ) +
+  labs(
+    title = "Homicide and suicide deaths among women by age group",
+    subtitle = "Absolute numbers, Brazil, 2010–2024",
+    x = "Age group",
+    y = "Number of deaths",
+    fill = NULL,
+    caption = paste0(
+      "Counts are not age-specific mortality rates.\n",
+      "Source: Brazilian Mortality Information System (SIM/DATASUS)."
+    )
+  ) +
+  theme_datasus() +
+  theme(
+    panel.grid.major.x = element_blank()
+  )
+
+plot_homicide_suicide_by_age <- add_contact_footer(plot_homicide_suicide_by_age)
+
+plot_homicide_suicide_by_age
+```
+
+## Homicide and suicide by race/skin color
+
+```{r homicide-suicide-by-race, fig.width=10, fig.height=6.2}
+suicide_homicide_race <-
+  women_deaths %>%
+  filter(
+    external_cause_category %in% c("Suicide", "Homicide")
+  ) %>%
+  mutate(
+    race_skin_color =
+      if_else(
+        is.na(RACACOR) |
+          str_trim(as.character(RACACOR)) == "",
+        "Missing/unknown",
+        as.character(RACACOR)
+      )
+  ) %>%
+  count(
+    race_skin_color,
+    external_cause_category,
+    name = "deaths"
+  )
+
+plot_homicide_suicide_by_race <-
+  ggplot(
+    suicide_homicide_race,
+    aes(
+      x = fct_reorder(
+        race_skin_color,
+        deaths,
+        .fun = sum
+      ),
+      y = deaths,
+      fill = external_cause_category
+    )
+  ) +
+  geom_col(
+    position = "dodge",
+    width = 0.72
+  ) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c(
+      "Homicide" = col_red,
+      "Suicide" = col_teal
+    )
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0, 0.10))
+  ) +
+  labs(
+    title = "Homicide and suicide deaths among women by race/skin color",
+    subtitle = "Absolute numbers, Brazil, 2010–2024",
+    x = NULL,
+    y = "Number of deaths",
+    fill = NULL,
+    caption = paste0(
+      "Counts are not race-specific mortality rates. ",
+      "Missing/unknown values remain explicit.\n",
+      "Source: Brazilian Mortality Information System (SIM/DATASUS)."
+    )
+  ) +
+  theme_datasus() +
+  theme(
+    panel.grid.major.y = element_blank()
+  )
+
+plot_homicide_suicide_by_race <- add_contact_footer(plot_homicide_suicide_by_race)
+
+plot_homicide_suicide_by_race
+```
+
+# Interpretation and limitations
+
+The report is descriptive. National crude mortality rates account for annual changes in the size of the female population, but they are **not age-standardized**. The age and race/skin-color figures are distributions of recorded deaths and should not be interpreted as subgroup mortality risks without corresponding subgroup population denominators.
+
+For external causes, classification depends on the underlying cause recorded in SIM. Deaths of undetermined intent (ICD-10 Y10–Y34) are kept separate rather than reassigned to homicide or suicide. This is important because changes in cause-of-death classification can affect observed trends.
+
+The femicide analysis combines two distinct official/administrative information systems. SIM provides female homicide deaths based on death certificates and ICD-10 underlying cause, whereas FBSP compiles femicide records from public-security sources. Consequently, the calculated **FBSP femicides / SIM female homicides** percentage is a cross-system descriptive comparison and is not the official FBSP proportion of female homicides classified as femicide.
+
+# Reproducibility and exports
+
+Only the analytical datasets and figures used in the streamlined report are exported below.
+
+```{r export-results, results='hide'}
+# Analytical tables.
+write_csv(
+  deaths_by_year,
+  file.path(output_directory, "female_deaths_by_year_2010_2024.csv")
+)
+
+write_csv(
+  female_mortality_rate,
+  file.path(output_directory, "female_crude_mortality_rate_per_100000_2010_2024.csv")
+)
+
+write_csv(
+  external_cause_summary,
+  file.path(output_directory, "external_causes_women_2010_2024.csv")
+)
+
+write_csv(
+  suicide_homicide_year,
+  file.path(output_directory, "female_homicide_suicide_by_year_2010_2024.csv")
+)
+
+write_csv(
+  female_homicide_suicide_rates,
+  file.path(output_directory, "female_homicide_suicide_rates_per_100000_2010_2024.csv")
+)
+
+write_csv(
+  femicide_homicide_comparison,
+  file.path(output_directory, "femicide_vs_female_homicide_2015_2024.csv")
+)
+
+write_csv(
+  suicide_homicide_age,
+  file.path(output_directory, "female_homicide_suicide_by_age_2010_2024.csv")
+)
+
+write_csv(
+  suicide_homicide_race,
+  file.path(output_directory, "female_homicide_suicide_by_race_2010_2024.csv")
+)
+
+# Main figures.
+ggsave(
+  file.path(figure_directory, "01_female_deaths_absolute.png"),
+  plot_deaths_over_time,
+  width = 10,
+  height = 6.2,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "02_female_mortality_rate_per_100000.png"),
+  plot_female_crude_mortality,
+  width = 10,
+  height = 6.2,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "03_external_causes_women.png"),
+  plot_external_causes,
+  width = 10,
+  height = 6.2,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "04_homicide_suicide_absolute.png"),
+  plot_homicide_suicide_absolute,
+  width = 10,
+  height = 6.4,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "05_homicide_suicide_rates_per_100000.png"),
+  plot_female_homicide_suicide_rates,
+  width = 10,
+  height = 6.4,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "06_femicide_and_female_homicide_absolute.png"),
+  plot_femicide_absolute,
+  width = 10,
+  height = 6.4,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "07_femicide_relative_to_sim_homicides.png"),
+  plot_femicide_percentage,
+  width = 10,
+  height = 6.4,
+  dpi = 320,
+  bg = "white"
+)
+
+# Additional demographic figures.
+ggsave(
+  file.path(figure_directory, "08_female_deaths_by_age.png"),
+  plot_age_groups,
+  width = 10,
+  height = 5.8,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "09_female_deaths_by_race.png"),
+  plot_deaths_by_race,
+  width = 10,
+  height = 5.8,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "10_homicide_suicide_by_age.png"),
+  plot_homicide_suicide_by_age,
+  width = 10,
+  height = 6.2,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "11_homicide_suicide_by_race.png"),
+  plot_homicide_suicide_by_race,
+  width = 10,
+  height = 6.2,
+  dpi = 320,
+  bg = "white"
+)
+
+# Reproducibility information.
+writeLines(
+  capture.output(sessionInfo()),
+  file.path(output_directory, "sessionInfo.txt")
+)
+```
