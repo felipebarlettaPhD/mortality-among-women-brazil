@@ -803,17 +803,36 @@ plot_female_homicide_suicide_rates <- add_contact_footer(plot_female_homicide_su
 plot_female_homicide_suicide_rates
 ```
 
-## 6. Femicide: registered cases and relation to female homicides
+## 6. Femicide and female homicide in public-security records
 
-Brazil introduced the legal category of femicide in 2015. The series below uses the consolidated annual counts published by the **Fórum Brasileiro de Segurança Pública (FBSP)**. These records originate from public-security data and are therefore analytically distinct from deaths classified as homicide in SIM.
+Brazil introduced the legal category of femicide in 2015. For the analyses in this section, both the number of **female homicides** and the number of **registered femicides** come from the **Fórum Brasileiro de Segurança Pública (FBSP)**. This keeps the numerator and denominator within the same public-security information system.
 
-The first figure compares the absolute number of registered femicides with female homicide deaths recorded in SIM. The second expresses the FBSP femicide count relative to the SIM female-homicide count in the same year.
+The FBSP female-homicide series used here includes registered femicides. Historical values use revised figures reported in subsequent editions of the *Anuário Brasileiro de Segurança Pública* whenever available.
 
 ```{r femicide-data, results='hide'}
-# Consolidated FBSP historical series used in this project.
-femicide_fbsp <-
+# Consolidated FBSP historical series.
+#
+# Female homicides include registered femicides.
+# Historical values use revised figures reported in subsequent
+# editions of the Brazilian Public Security Yearbook whenever available.
+
+fbsp_women_violence <-
   tibble::tibble(
     death_year = 2015:2024,
+
+    female_homicides_fbsp = c(
+      4793,
+      4245,
+      4556,
+      4340,
+      3966,
+      3999,
+      3869,
+      3934,
+      3937,
+      3700
+    ),
+
     femicides_fbsp = c(
       449,
       929,
@@ -826,8 +845,24 @@ femicide_fbsp <-
       1475,
       1492
     )
+  ) %>%
+  mutate(
+    femicide_percentage =
+      100 * femicides_fbsp / female_homicides_fbsp
   )
 
+# Audit the historical percentages against the revised FBSP series.
+stopifnot(
+  identical(
+    round(fbsp_women_violence$femicide_percentage, 1),
+    c(
+      9.4, 21.9, 23.6, 28.3, 33.5,
+      33.9, 34.8, 37.0, 37.5, 40.3
+    )
+  )
+)
+
+# SIM female-homicide series already derived from the mortality microdata.
 female_homicide_sim <-
   suicide_homicide_year %>%
   filter(
@@ -840,32 +875,49 @@ female_homicide_sim <-
     female_homicides_sim = as.numeric(deaths)
   )
 
-femicide_homicide_comparison <-
+# Dataset used only to compare the two information systems.
+female_homicide_sources <-
   female_homicide_sim %>%
   left_join(
-    femicide_fbsp,
+    fbsp_women_violence %>%
+      select(
+        death_year,
+        female_homicides_fbsp
+      ),
     by = "death_year"
   ) %>%
   mutate(
-    femicide_percentage_of_sim_homicides =
-      100 * femicides_fbsp / female_homicides_sim
+    difference_fbsp_minus_sim =
+      female_homicides_fbsp - female_homicides_sim,
+
+    percent_difference_relative_to_sim =
+      100 * difference_fbsp_minus_sim / female_homicides_sim
   ) %>%
   arrange(death_year)
+
+stopifnot(
+  nrow(fbsp_women_violence) == 10,
+  nrow(female_homicide_sources) == 10,
+  !any(is.na(female_homicide_sources$female_homicides_fbsp)),
+  !any(is.na(female_homicide_sources$female_homicides_sim))
+)
 ```
 
-### Registered femicides and female homicides
+## 6.1 Female homicides and registered femicides in FBSP
+
+The first comparison now stays entirely within the FBSP data. Female homicides are the total number of female homicide victims recorded by public-security authorities, including cases registered as femicide. The femicide series is therefore a subset of this broader female-homicide series.
 
 ```{r femicide-absolute, fig.width=10, fig.height=6.4}
 plot_femicide_absolute_data <-
-  femicide_homicide_comparison %>%
+  fbsp_women_violence %>%
   select(
     death_year,
-    female_homicides_sim,
+    female_homicides_fbsp,
     femicides_fbsp
   ) %>%
   pivot_longer(
     cols = c(
-      female_homicides_sim,
+      female_homicides_fbsp,
       femicides_fbsp
     ),
     names_to = "series",
@@ -875,7 +927,7 @@ plot_femicide_absolute_data <-
     series =
       recode(
         series,
-        female_homicides_sim = "Female homicides — SIM/DATASUS",
+        female_homicides_fbsp = "Female homicides — FBSP",
         femicides_fbsp = "Registered femicides — FBSP"
       )
   )
@@ -894,7 +946,7 @@ plot_femicide_absolute <-
   geom_point(size = 2.6) +
   scale_color_manual(
     values = c(
-      "Female homicides — SIM/DATASUS" = col_navy,
+      "Female homicides — FBSP" = col_navy,
       "Registered femicides — FBSP" = col_red
     )
   ) +
@@ -907,14 +959,15 @@ plot_femicide_absolute <-
   ) +
   labs(
     title = "Female homicides and registered femicides in Brazil",
-    subtitle = "SIM/DATASUS homicide deaths and FBSP femicide records, 2015–2024",
+    subtitle = "Public-security records compiled by FBSP, 2015–2024",
     x = "Year",
-    y = "Number of deaths",
+    y = "Number of victims",
     color = NULL,
     caption = paste0(
-      "Female homicides: Mortality Information System (SIM/DATASUS). ",
-      "Femicides: Fórum Brasileiro de Segurança Pública (FBSP).\n",
-      "The two series originate from different information systems."
+      "Source: Fórum Brasileiro de Segurança Pública (FBSP), ",
+      "Anuário Brasileiro de Segurança Pública.\n",
+      "Female homicides include registered femicides. ",
+      "Historical figures may be revised in subsequent editions."
     )
   ) +
   theme_datasus()
@@ -924,15 +977,19 @@ plot_femicide_absolute <- add_contact_footer(plot_femicide_absolute)
 plot_femicide_absolute
 ```
 
-### Registered femicides relative to female homicides
+The two curves should not be interpreted as independent categories. Registered femicides are included within the broader FBSP female-homicide count. The figure shows how the number formally registered as femicide evolved relative to the total number of female homicide victims recorded by the same public-security system.
+
+## 6.2 Registered femicides relative to female homicides
+
+Because both series now come from FBSP, this percentage is a within-system comparison. It represents the number of registered femicides divided by the total number of female homicides, including femicides, recorded in the FBSP series.
 
 ```{r femicide-proportion, fig.width=10, fig.height=6.4}
 plot_femicide_percentage <-
   ggplot(
-    femicide_homicide_comparison,
+    fbsp_women_violence,
     aes(
       x = death_year,
-      y = femicide_percentage_of_sim_homicides
+      y = femicide_percentage
     )
   ) +
   geom_line(
@@ -947,7 +1004,7 @@ plot_femicide_percentage <-
     aes(
       label = sprintf(
         "%.1f%%",
-        femicide_percentage_of_sim_homicides
+        femicide_percentage
       )
     ),
     vjust = -0.8,
@@ -966,13 +1023,14 @@ plot_femicide_percentage <-
   ) +
   labs(
     title = "Registered femicides relative to female homicides in Brazil",
-    subtitle = "FBSP femicides as a percentage of female homicide deaths recorded in SIM, 2015–2024",
+    subtitle = "FBSP femicides as a percentage of FBSP female homicides, 2015–2024",
     x = "Year",
     y = "Femicides / female homicides (%)",
     caption = paste0(
-      "Numerator: registered femicides, FBSP. ",
-      "Denominator: female homicide deaths, SIM/DATASUS.\n",
-      "This is a cross-system descriptive comparison, not the official FBSP proportion."
+      "Source: Fórum Brasileiro de Segurança Pública (FBSP), ",
+      "Anuário Brasileiro de Segurança Pública.\n",
+      "Both numerator and denominator come from the same public-security series. ",
+      "Female homicides include registered femicides."
     )
   ) +
   theme_datasus()
@@ -982,7 +1040,83 @@ plot_femicide_percentage <- add_contact_footer(plot_femicide_percentage)
 plot_femicide_percentage
 ```
 
-The ratio above should be interpreted literally as **registered femicides in FBSP divided by female homicide deaths recorded in SIM**. Because numerator and denominator come from different information systems, it should not be interpreted as an individual-level classification of SIM homicide records.
+The increase in this percentage should be read as an increase in the share of female homicide victims that were **registered as femicide within the FBSP public-security data**. It does not by itself establish whether the underlying incidence of gender-motivated killings changed by the same magnitude. Changes in police classification, reporting and implementation of the femicide category can also affect the recorded series, especially in the earlier years after the legal category was introduced.
+
+## 6.3 Female homicides in SIM and FBSP
+
+The final figure compares female homicide counts from the two systems. SIM/DATASUS is a mortality information system based on death certificates and ICD-10 underlying causes. FBSP compiles administrative records from public-security authorities. The comparison is therefore useful for describing agreement and differences between two ways of recording lethal violence against women, but the annual counts are not expected to be identical.
+
+```{r female-homicide-sim-fbsp, fig.width=10, fig.height=6.4}
+plot_homicide_sources_data <-
+  female_homicide_sources %>%
+  select(
+    death_year,
+    female_homicides_sim,
+    female_homicides_fbsp
+  ) %>%
+  pivot_longer(
+    cols = c(
+      female_homicides_sim,
+      female_homicides_fbsp
+    ),
+    names_to = "source",
+    values_to = "female_homicides"
+  ) %>%
+  mutate(
+    source =
+      recode(
+        source,
+        female_homicides_sim = "SIM/DATASUS",
+        female_homicides_fbsp = "FBSP"
+      )
+  )
+
+plot_homicide_sources <-
+  ggplot(
+    plot_homicide_sources_data,
+    aes(
+      x = death_year,
+      y = female_homicides,
+      color = source,
+      group = source
+    )
+  ) +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 2.6) +
+  scale_color_manual(
+    values = c(
+      "SIM/DATASUS" = col_blue,
+      "FBSP" = col_red
+    )
+  ) +
+  scale_x_continuous(
+    breaks = 2015:2024
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(mult = c(0.03, 0.08))
+  ) +
+  labs(
+    title = "Female homicides recorded in SIM and FBSP",
+    subtitle = "Annual number of female homicide deaths/victims, Brazil, 2015–2024",
+    x = "Year",
+    y = "Number of female homicides",
+    color = NULL,
+    caption = paste0(
+      "SIM/DATASUS: deaths classified as homicide from death-certificate ",
+      "underlying causes (ICD-10 X85–Y09).\n",
+      "FBSP: female homicide victims recorded by public-security authorities, ",
+      "including registered femicides."
+    )
+  ) +
+  theme_datasus()
+
+plot_homicide_sources <- add_contact_footer(plot_homicide_sources)
+
+plot_homicide_sources
+```
+
+This comparison should not be interpreted as a validation of one system against the other. The systems have different purposes, definitions, reporting flows and revision procedures. Differences between the curves are therefore treated descriptively rather than as measurement error in either source.
 
 # Additional demographic analyses
 
@@ -1261,7 +1395,7 @@ The report is descriptive. National crude mortality rates account for annual cha
 
 For external causes, classification depends on the underlying cause recorded in SIM. Deaths of undetermined intent (ICD-10 Y10–Y34) are kept separate rather than reassigned to homicide or suicide. This is important because changes in cause-of-death classification can affect observed trends.
 
-The femicide analysis combines two distinct official/administrative information systems. SIM provides female homicide deaths based on death certificates and ICD-10 underlying cause, whereas FBSP compiles femicide records from public-security sources. Consequently, the calculated **FBSP femicides / SIM female homicides** percentage is a cross-system descriptive comparison and is not the official FBSP proportion of female homicides classified as femicide.
+The femicide analysis uses FBSP public-security records for both female homicides and registered femicides, so the femicide percentage is calculated within the same information system. SIM is retained as an independent mortality source and is compared separately with FBSP female-homicide counts. SIM and FBSP have different purposes, definitions, reporting flows and revision procedures, so differences between their annual homicide counts are interpreted descriptively.
 
 # Reproducibility and exports
 
@@ -1295,8 +1429,13 @@ write_csv(
 )
 
 write_csv(
-  femicide_homicide_comparison,
-  file.path(output_directory, "femicide_vs_female_homicide_2015_2024.csv")
+  fbsp_women_violence,
+  file.path(output_directory, "fbsp_female_homicide_femicide_2015_2024.csv")
+)
+
+write_csv(
+  female_homicide_sources,
+  file.path(output_directory, "female_homicides_SIM_vs_FBSP_2015_2024.csv")
 )
 
 write_csv(
@@ -1356,7 +1495,7 @@ ggsave(
 )
 
 ggsave(
-  file.path(figure_directory, "06_femicide_and_female_homicide_absolute.png"),
+  file.path(figure_directory, "06_fbsp_female_homicide_and_femicide_absolute.png"),
   plot_femicide_absolute,
   width = 10,
   height = 6.4,
@@ -1365,8 +1504,17 @@ ggsave(
 )
 
 ggsave(
-  file.path(figure_directory, "07_femicide_relative_to_sim_homicides.png"),
+  file.path(figure_directory, "07_fbsp_femicide_relative_to_female_homicides.png"),
   plot_femicide_percentage,
+  width = 10,
+  height = 6.4,
+  dpi = 320,
+  bg = "white"
+)
+
+ggsave(
+  file.path(figure_directory, "08_female_homicides_SIM_vs_FBSP.png"),
+  plot_homicide_sources,
   width = 10,
   height = 6.4,
   dpi = 320,
@@ -1375,7 +1523,7 @@ ggsave(
 
 # Additional demographic figures.
 ggsave(
-  file.path(figure_directory, "08_female_deaths_by_age.png"),
+  file.path(figure_directory, "09_female_deaths_by_age.png"),
   plot_age_groups,
   width = 10,
   height = 5.8,
@@ -1384,7 +1532,7 @@ ggsave(
 )
 
 ggsave(
-  file.path(figure_directory, "09_female_deaths_by_race.png"),
+  file.path(figure_directory, "10_female_deaths_by_race.png"),
   plot_deaths_by_race,
   width = 10,
   height = 5.8,
@@ -1393,7 +1541,7 @@ ggsave(
 )
 
 ggsave(
-  file.path(figure_directory, "10_homicide_suicide_by_age.png"),
+  file.path(figure_directory, "11_homicide_suicide_by_age.png"),
   plot_homicide_suicide_by_age,
   width = 10,
   height = 6.2,
@@ -1402,7 +1550,7 @@ ggsave(
 )
 
 ggsave(
-  file.path(figure_directory, "11_homicide_suicide_by_race.png"),
+  file.path(figure_directory, "12_homicide_suicide_by_race.png"),
   plot_homicide_suicide_by_race,
   width = 10,
   height = 6.2,
@@ -1416,3 +1564,16 @@ writeLines(
   file.path(output_directory, "sessionInfo.txt")
 )
 ```
+
+<style>
+body,
+.main-container {
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.main-container > *:last-child {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+</style>
